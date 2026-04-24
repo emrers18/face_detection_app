@@ -16,7 +16,6 @@ class MlKitLogic {
   }
 
   Future<FaceEmotionModel?> processImage(InputImage inputImage) async {
-
     // görüntüyü modele verme
     final faces = await _faceDetector.processImage(inputImage);
 

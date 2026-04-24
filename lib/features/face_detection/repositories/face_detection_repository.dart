@@ -5,11 +5,14 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import '../logic/camera_logic.dart';
 import '../logic/ml_kit_logic.dart';
 import '../models/face_emotion_model.dart';
+import 'dart:typed_data';
 
 class FaceDetectionRepository {
   final CameraLogic cameraLogic;
   final MlKitLogic mlkitlogic;
   bool _isProcessing = false;
+  bool _loggedUnsupportedFormat = false;
+  bool _loggedUnsupportedRotation = false;
 
   FaceDetectionRepository({
     required this.cameraLogic, 
@@ -23,14 +26,18 @@ class FaceDetectionRepository {
       if (_isProcessing) return;
       _isProcessing = true;
       try {
-        //CameraImage -> InputImage
+        // CameraImage -> InputImage
         final inputImage = _convertCameraImageToInputImage(image);
         if (inputImage != null) {
           final result = await mlkitlogic.processImage(inputImage);
           onResult(result);
+        } else {
+          // Keep UI alive even when this frame cannot be converted.
+          onResult(null);
         }
       } catch (e) {
         debugPrint('Error processing image: $e');
+        onResult(null);
       } finally {
         _isProcessing = false;
       }
@@ -46,25 +53,44 @@ class FaceDetectionRepository {
     mlkitlogic.dispose();
   }
 
-  InputImage? _convertCameraImageToInputImage(CameraImage image){
-    final camera = cameraLogic.controller!.description;
-    final sensorOrientation = camera.sensorOrientation;
+  InputImage? _convertCameraImageToInputImage(CameraImage image) {
+    final controller = cameraLogic.controller;
+    if (controller == null || image.planes.isEmpty) return null;
 
-    final InputImageRotation? rotation = InputImageRotation.values.byName(sensorOrientation.toString());
-    if (rotation == null) return null;
+    final sensorOrientation = controller.description.sensorOrientation;
+    final rotation = InputImageRotationValue.fromRawValue(sensorOrientation);
+    if (rotation == null) {
+      if (!_loggedUnsupportedRotation) {
+        debugPrint('Unsupported sensor orientation: $sensorOrientation');
+        _loggedUnsupportedRotation = true;
+      }
+      return null;
+    }
 
-    final format = InputImageFormat.values.byName(image.format.raw.toString());
-    if (format == null || (format != InputImageFormat.nv21 && format != InputImageFormat.bgra8888)) return null;
+    final rawFormat = image.format.raw;
+    final format = InputImageFormatValue.fromRawValue(rawFormat);
+    if (format == null) {
+      if (!_loggedUnsupportedFormat) {
+        debugPrint(
+          'Unsupported camera format: $rawFormat | planes=${image.planes.length}',
+        );
+        _loggedUnsupportedFormat = true;
+      }
+      return null;
+    }
 
-    if (image.planes.isEmpty) return null;
+    final allBytes = BytesBuilder(copy: false);
+    for (final plane in image.planes) {
+      allBytes.add(plane.bytes);
+    }
 
     return InputImage.fromBytes(
-      bytes: image.planes[0].bytes,
+      bytes: allBytes.toBytes(),
       metadata: InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation,
         format: format,
-        bytesPerRow: image.planes[0].bytesPerRow,
+        bytesPerRow: image.planes.first.bytesPerRow,
       ),
     );
   }

@@ -13,7 +13,7 @@ class CameraLogic {
 
     controller = CameraController(
       frontCamera,
-      ResolutionPreset.low,
+      ResolutionPreset.high,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.nv21,
     );
